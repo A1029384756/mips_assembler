@@ -90,4 +90,44 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_mem_decl() {
+        {
+            let input = ".space 100";
+            let result = parse_mem_decl(input).finish();
+
+            match result {
+                Ok(v) => assert_eq!(v, ("", 100)),
+                Result::Err(_) => assert!(false),
+            }
+        }
+        {
+            let input = ".space -30";
+            let result = parse_mem_decl(input).finish();
+
+            match result {
+                Ok(_) => assert!(false),
+                Result::Err(err) => assert_eq!(err.input, input),
+            }
+        }
+        {
+            let input = ".byte 255";
+            let result = parse_mem_decl(input).finish();
+
+            match result {
+                Ok(v) => assert_eq!(v, ("", 255)),
+                Result::Err(_) => assert!(false),
+            }
+        }
+        {
+            let input = ".byte 256";
+            let result = parse_mem_decl(input).finish();
+
+            match result {
+                Ok(_) => assert!(false),
+                Result::Err(err) => assert_eq!(err.input, input),
+            }
+        }
+    }
 }

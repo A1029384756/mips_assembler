@@ -1,7 +1,8 @@
 mod parse_tests;
 use nom::{
+    branch::alt,
     bytes::complete::{tag, take_till},
-    character::complete::{alphanumeric1, i64, multispace0},
+    character::complete::{alphanumeric1, i64, multispace0, multispace1},
     error::{Error, ErrorKind, ParseError},
     sequence::{terminated, tuple},
     Err, IResult,
@@ -11,13 +12,49 @@ fn main() {
     println!("Hello, world!");
 }
 
+fn parse_mem_decl(input: &str) -> IResult<&str, i64> {
+    let (i, (t, _, val)) = alt((
+        tuple((tag(".word"), multispace1, i64)),
+        tuple((tag(".half"), multispace1, i64)),
+        tuple((tag(".byte"), multispace1, i64)),
+        tuple((tag(".space"), multispace1, i64)),
+    ))(input)?;
+
+    match t {
+        ".word" => {
+            if valid_int_size(val, 32) {
+                return Ok((i, val));
+            }
+        }
+        ".half" => {
+            if valid_int_size(val, 16) {
+                return Ok((i, val));
+            }
+        }
+        ".byte" => {
+            if valid_int_size(val, 8) {
+                return Ok((i, val));
+            }
+        }
+        ".space" => {
+            if u32::try_from(val).is_ok() {
+                return Ok((i, val));
+            }
+        }
+        _ => {}
+    };
+
+    Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+}
+
 fn parse_const_decl(input: &str) -> IResult<&str, (&str, i64)> {
     let (i, (name, _, _, _, val)) =
         tuple((parse_var_name, multispace0, tag("="), multispace0, i64))(input)?;
 
-    match (i32::try_from(val), u32::try_from(val)) {
-        (Ok(_), Ok(_)) | (Ok(_), Result::Err(_)) | (Result::Err(_), Ok(_)) => Ok((i, (name, val))),
-        _ => Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot))),
+    if get_msb(val) <= 32 {
+        Ok((i, (name, val)))
+    } else {
+        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
     }
 }
 
@@ -112,4 +149,21 @@ fn parse_register(input: &str) -> IResult<&str, u32> {
         "$31" | "$ra" => Ok((i, 31)),
         _ => Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot))),
     }
+}
+
+fn valid_int_size(val: i64, size: i64) -> bool {
+    dbg!(val);
+    dbg!(get_msb(val));
+    dbg!(get_msb(val) <= size);
+    get_msb(val) < size
+}
+
+fn get_msb(n: i64) -> i64 {
+    for i in (0..(std::mem::size_of::<i64>() * 8)).rev() {
+        if (n >> i) & 1 == 1 {
+            return i as i64;
+        }
+    }
+
+    0
 }
