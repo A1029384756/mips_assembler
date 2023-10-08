@@ -108,6 +108,10 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
         }
     }
 
+    if let None = inst_labels.get("main") {
+        return Err("Missing main label".to_string());
+    }
+
     let mut assembled_insts: Vec<u32> = Vec::new();
     for inst in insts.iter() {
         let mut assembled = 0;
