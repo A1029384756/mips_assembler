@@ -36,3 +36,6 @@ TODO
   - Labels
   - Space Declarations
 - Instruction Parsing
+
+Expected: 00000001000010010101000000100101
+Actual:   00000000100001001010100000100101

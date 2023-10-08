@@ -11,43 +11,73 @@ use nom::{
     Err, Finish, IResult,
 };
 
-fn main() {
+fn main() -> Result<(), ()> {
     let input = include_str!("../test_files/valid/test01.asm");
-    let result = parse_asm(input).finish();
-    match result {
-        Ok(res) => {
-            println!("{:?}", res);
-            validate(&res.1);
+    let preprocessed = preprocess(input)?;
+    if let Ok(result) = parse_asm(&preprocessed).finish() {
+        let assembly = assemble(&result.1);
+        match assembly {
+            Ok(asm) => {
+                asm.0.iter().for_each(|e| {
+                    print!("{:08X}\n", e);
+                });
+            }
+            Result::Err(_) => todo!(),
         }
-        Result::Err(_) => println!("Parse error!"),
     }
+
+    Ok(())
 }
 
-fn validate(i: &Vec<Section>) -> Vec<Instruction> {
+fn preprocess(i: &str) -> Result<String, ()> {
+    let out = i
+        .lines()
+        .filter_map(|line| {
+            if line.starts_with('#') {
+                None
+            } else {
+                match line.split_once('#') {
+                    Some((l, _)) => Some(l.to_string() + "\n"),
+                    None => Some(line.to_string() + "\n"),
+                }
+            }
+        })
+        .reduce(|acc, e| acc + &e)
+        .ok_or(())?;
+
+    Ok(out)
+}
+
+fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
     let data = i
         .into_iter()
-        .filter(|e| matches!(e, Section::Data(_)))
-        .map(|e| match e {
-            Section::Data(data) => data.clone(),
-            Section::Text(_) => panic!(),
+        .filter_map(|e| match e {
+            Section::Data(data) => Some(data.clone()),
+            Section::Text(_) => None,
         })
         .reduce(|mut acc, e| {
             acc.extend(e);
             acc
         })
-        .unwrap();
+        .ok_or("Data section does not exist")?;
 
+    let mut data_mem: Vec<u8> = Vec::new();
     let mut mem_back_ptr: i64 = 0;
-    let mut labels: HashMap<String, i64> = HashMap::new();
+    let mut mem_labels: HashMap<String, i64> = HashMap::new();
     let mut constants: HashMap<String, i64> = HashMap::new();
     data.iter().for_each(|elem| {
         match elem {
             Declaration::Allocation(a) => match a {
-                Allocation::Value(num, size) => mem_back_ptr += size,
+                Allocation::Value(num, size) => {
+                    num.to_be_bytes().iter().for_each(|e| {
+                        data_mem.push(*e);
+                    });
+                    mem_back_ptr += size;
+                }
                 Allocation::Space(size) => mem_back_ptr += size,
             },
             Declaration::Label(l) => {
-                labels.insert(l.clone(), mem_back_ptr);
+                mem_labels.insert(l.clone(), mem_back_ptr);
             }
             Declaration::Constant(c) => {
                 constants.insert(c.0.clone(), c.1);
@@ -55,14 +85,157 @@ fn validate(i: &Vec<Section>) -> Vec<Instruction> {
         };
     });
 
-    println!("Back ptr: {}, labels: {:?}, constants: {:?}", mem_back_ptr, labels, constants);
+    let lines = i
+        .into_iter()
+        .filter_map(|e| match e {
+            Section::Data(_) => None,
+            Section::Text(t) => Some(t.clone()),
+        })
+        .reduce(|mut acc, e| {
+            acc.extend(e);
+            acc
+        })
+        .ok_or("Text section does not exist")?;
 
-    //data_sections.iter().for_each(|section| match section {
-    //    Section::Data(_) => todo!(),
-    //    Section::Text(_) => panic!(),
-    //});
+    let mut insts: Vec<Instruction> = Vec::new();
+    let mut inst_labels: HashMap<String, i64> = HashMap::new();
+    let mut curr_line: i64 = 0;
+    lines.iter().for_each(|e| match e {
+        Line::Declaration(d) => {
+            match d {
+                Declaration::Label(l) => inst_labels.insert(l.to_owned(), curr_line * 4),
+                _ => panic!(),
+            };
+        }
+        Line::Instruction(e) => {
+            insts.push(e.clone());
+            curr_line += 1;
+        }
+    });
 
-    todo!()
+    let mut assembled_insts: Vec<u32> = Vec::new();
+    insts.iter().for_each(|inst| {
+        let mut assembled = 0;
+        match inst {
+            Instruction::ArithLogic(op, rd, rs, rt) => {
+                assembled += rs << 21;
+                assembled += rt << 16;
+                assembled += rd << 11;
+                assembled += op.1;
+            }
+            Instruction::ArithLogicImm(op, rt, rs, imm) => {
+                assembled += op.0 << 26;
+                assembled += rs << 21;
+                assembled += rt << 16;
+                match imm {
+                    ImmArg::Immediate(imm) => {
+                        assembled += (*imm as u16) as i64;
+                    }
+                    ImmArg::Constant(c) => match constants.get(c) {
+                        Some(v) => {
+                            assembled += (*v as u16) as i64;
+                        }
+                        None => panic!(),
+                    },
+                }
+            }
+            Instruction::Shift(op, rd, rt, shamt) => {
+                assembled += op.0 << 26;
+                assembled += rt << 16;
+                assembled += rd << 11;
+                match shamt {
+                    ImmArg::Immediate(shamt) => {
+                        assembled += shamt << 6;
+                    }
+                    ImmArg::Constant(c) => match constants.get(c) {
+                        Some(v) => {
+                            assembled += v << 6;
+                        }
+                        None => panic!(),
+                    },
+                }
+            }
+            Instruction::LoadStore(op, rt, memref) => {
+                assembled += op.0 << 26;
+                match memref.1.clone() {
+                    MemLoc::Register(rs) => {
+                        assembled += rs << 21;
+                        assembled += rt << 16;
+                        assembled += memref.0;
+                    }
+                    MemLoc::Label(l) => match mem_labels.get(&l) {
+                        Some(addr) => {
+                            // lui $1, 4097 - loads the data section into register $at
+                            assembled_insts.push(0x3c011001);
+
+                            // Performs load
+                            assembled += 1 << 21;
+                            assembled += rt << 16;
+                            assembled += addr + memref.0;
+                        }
+                        None => panic!(),
+                    },
+                    MemLoc::Immediate(imm) => {
+                        // lui $1, 4097 - loads the data section into register $at
+                        assembled_insts.push(0x3c011001);
+
+                        assembled += 1 << 21;
+                        assembled += rt << 16;
+                        assembled += imm;
+                    }
+                };
+                assembled += (memref.0 as u16) as i64;
+            }
+            Instruction::Branch(op, rs, rt, memref) => match memref.1.clone() {
+                MemLoc::Label(l) => match inst_labels.get(&l) {
+                    Some(line) => {
+                        let offset = line - (assembled_insts.len() as i64);
+
+                        assembled += op.0 << 26;
+                        assembled += rs << 21;
+                        assembled += rt << 16;
+                        assembled += (offset as u16) as i64;
+                    }
+                    None => panic!(),
+                },
+                _ => panic!(),
+            },
+            Instruction::Lui(op, rt, imm) => {
+                assembled += op.0 << 26;
+                assembled += rt << 16;
+                match imm {
+                    ImmArg::Immediate(imm) => {
+                        assembled += (*imm as u16) as i64;
+                    }
+                    ImmArg::Constant(c) => match constants.get(c) {
+                        Some(v) => {
+                            assembled += (*v as u16) as i64;
+                        }
+                        None => panic!(),
+                    },
+                }
+            }
+            Instruction::Jump(op, memref) => match memref.1.clone() {
+                MemLoc::Label(l) => match inst_labels.get(&l) {
+                    Some(line) => {
+                        let offset = line - (inst_labels.len() as i64);
+                        assembled += op.0 << 26;
+                        assembled += offset;
+                    }
+                    None => panic!(),
+                },
+                _ => panic!(),
+            },
+            Instruction::Jr(op, rs) => {
+                assembled += op.0 << 26;
+                assembled += rs << 21;
+                assembled += op.1;
+            }
+        };
+        assembled_insts.push(assembled as u32);
+    });
+
+    Ok((assembled_insts, data_mem))
 }
 
 #[derive(Debug, Clone)]
@@ -98,11 +271,11 @@ enum Line {
 #[derive(Debug, Clone)]
 enum Instruction {
     ArithLogic(Operation, Register, Register, Register),
-    ArithLogicImm(Operation, Register, Register, i64),
-    Shift(Operation, Register, Register, i64),
+    ArithLogicImm(Operation, Register, Register, ImmArg),
+    Shift(Operation, Register, Register, ImmArg),
     LoadStore(Operation, Register, MemRef),
     Branch(Operation, Register, Register, MemRef),
-    Lui(Operation, Register, i64),
+    Lui(Operation, Register, ImmArg),
     Jump(Operation, MemRef),
     Jr(Operation, Register),
 }
@@ -116,6 +289,12 @@ enum MemLoc {
     Register(Register),
     Label(String),
     Immediate(i64),
+}
+
+#[derive(Debug, Clone)]
+enum ImmArg {
+    Immediate(i64),
+    Constant(String),
 }
 
 fn parse_asm(input: &str) -> IResult<&str, Vec<Section>> {
@@ -262,16 +441,24 @@ fn parse_lui(input: &str) -> IResult<&str, Line> {
         parse_register,
         tag(","),
         multispace1,
-        i64,
+        parse_immarg,
     ))(input)?;
 
-    if valid_int_size(imm, 16) {
-        Ok((
+    match imm {
+        ImmArg::Immediate(im) => {
+            if valid_int_size(im, 16) {
+                Ok((
+                    i,
+                    Line::Instruction(Instruction::Lui(op_to_opcode_func(op), rd, imm)),
+                ))
+            } else {
+                Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+            }
+        }
+        ImmArg::Constant(_) => Ok((
             i,
             Line::Instruction(Instruction::Lui(op_to_opcode_func(op), rd, imm)),
-        ))
-    } else {
-        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+        )),
     }
 }
 
@@ -329,16 +516,24 @@ fn parse_shift(input: &str) -> IResult<&str, Line> {
         parse_register,
         tag(","),
         multispace1,
-        i64,
+        parse_immarg,
     ))(input)?;
 
-    if valid_int_size(shamt, 5) {
-        Ok((
+    match shamt {
+        ImmArg::Immediate(imm) => {
+            if valid_int_size(imm, 5) {
+                Ok((
+                    i,
+                    Line::Instruction(Instruction::Shift(op_to_opcode_func(op), rd, rs, shamt)),
+                ))
+            } else {
+                Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+            }
+        }
+        ImmArg::Constant(_) => Ok((
             i,
             Line::Instruction(Instruction::Shift(op_to_opcode_func(op), rd, rs, shamt)),
-        ))
-    } else {
-        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+        )),
     }
 }
 
@@ -388,11 +583,26 @@ fn parse_arith_log_imm(input: &str) -> IResult<&str, Line> {
         parse_register,
         tag(","),
         multispace1,
-        i64,
+        parse_immarg,
     ))(input)?;
 
-    if valid_int_size(imm, 16) {
-        Ok((
+    match imm {
+        ImmArg::Immediate(im) => {
+            if valid_int_size(im, 16) {
+                Ok((
+                    i,
+                    Line::Instruction(Instruction::ArithLogicImm(
+                        op_to_opcode_func(op),
+                        rd,
+                        rs,
+                        imm,
+                    )),
+                ))
+            } else {
+                Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+            }
+        }
+        ImmArg::Constant(_) => Ok((
             i,
             Line::Instruction(Instruction::ArithLogicImm(
                 op_to_opcode_func(op),
@@ -400,9 +610,7 @@ fn parse_arith_log_imm(input: &str) -> IResult<&str, Line> {
                 rs,
                 imm,
             )),
-        ))
-    } else {
-        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+        )),
     }
 }
 
@@ -490,6 +698,20 @@ fn parse_register(input: &str) -> IResult<&str, Register> {
         "31" | "ra" => Ok((i, 31)),
         _ => Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot))),
     }
+}
+
+fn parse_immarg(input: &str) -> IResult<&str, ImmArg> {
+    alt((parse_immarg_imm, parse_immarg_const))(input)
+}
+
+fn parse_immarg_imm(input: &str) -> IResult<&str, ImmArg> {
+    let (i, imm) = i64(input)?;
+    Ok((i, ImmArg::Immediate(imm)))
+}
+
+fn parse_immarg_const(input: &str) -> IResult<&str, ImmArg> {
+    let (i, imm) = parse_var(input)?;
+    Ok((i, ImmArg::Constant(imm.to_string())))
 }
 
 // ------------------ Conversion and Validation Functions ------------------
