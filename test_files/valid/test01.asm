@@ -7,5 +7,4 @@ main:
         lw $t0, var1
         lw $t1, var2
         or $t2, $t0, $t1  
-        or $t2, $t0, VALUE
-	
+        ori $t2, $t0, 3 

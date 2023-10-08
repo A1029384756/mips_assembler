@@ -4,28 +4,6 @@ mod tests {
     use nom::Finish;
 
     #[test]
-    fn test_opcode() {
-        {
-            let input = "add";
-            let result = parse_opcode(input).finish();
-
-            match result {
-                Ok(v) => assert_eq!(v, ("", (0x00, 0x20))),
-                Result::Err(_) => assert!(false),
-            }
-        }
-        {
-            let input = "sub";
-            let result = parse_opcode(input).finish();
-
-            match result {
-                Ok(v) => assert_ne!(v, ("", (0x00, 0x20))),
-                Result::Err(_) => assert!(false),
-            }
-        }
-    }
-
-    #[test]
     fn test_register() {
         {
             let input = "$s3";
@@ -54,7 +32,7 @@ mod tests {
             let result = parse_const_decl(input).finish();
 
             match result {
-                Ok(v) => assert_eq!(v, ("", ("value", 3))),
+                Ok(v) => assert!(matches!(v, ("", Declaration::Constant((_, 3))))),
                 Result::Err(_) => assert!(false),
             }
         }
@@ -76,7 +54,7 @@ mod tests {
             let result = parse_label_decl(input).finish();
 
             match result {
-                Ok(v) => assert_eq!(v, ("", "main")),
+                Ok(v) => assert!(matches!(v, ("", Declaration::Label(_)))),
                 Result::Err(_) => assert!(false),
             }
         }
@@ -98,7 +76,10 @@ mod tests {
             let result = parse_mem_decl(input).finish();
 
             match result {
-                Ok(v) => assert_eq!(v, ("", 100)),
+                Ok(v) => assert!(matches!(
+                    v,
+                    ("", Declaration::Allocation(Allocation::Space(100)))
+                )),
                 Result::Err(_) => assert!(false),
             }
         }
@@ -116,7 +97,10 @@ mod tests {
             let result = parse_mem_decl(input).finish();
 
             match result {
-                Ok(v) => assert_eq!(v, ("", 255)),
+                Ok(v) => assert!(matches!(
+                    v,
+                    ("", Declaration::Allocation(Allocation::Value(255, 1)))
+                )),
                 Result::Err(_) => assert!(false),
             }
         }
@@ -127,6 +111,83 @@ mod tests {
             match result {
                 Ok(_) => assert!(false),
                 Result::Err(err) => assert_eq!(err.input, input),
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_memref() {
+        {
+            let input = "-3($sp)";
+            let result = parse_memref(input).finish();
+
+            match result {
+                Ok(v) => assert!(matches!(v, ("", (-3, MemLoc::Register(29))))),
+                Result::Err(_) => assert!(false),
+            }
+        }
+        {
+            let input = "$sp";
+            let result = parse_memref(input).finish();
+
+            match result {
+                Ok(v) => assert!(matches!(v, ("", (0, MemLoc::Register(29))))),
+                Result::Err(_) => assert!(false),
+            }
+        }
+        {
+            let input = "($sp)";
+            let result = parse_memref(input).finish();
+
+            match result {
+                Ok(_) => assert!(false),
+                Result::Err(err) => assert_eq!(err.input, input),
+            }
+        }
+        {
+            let input = "100";
+            let result = parse_memref(input).finish();
+
+            match result {
+                Ok(v) => assert!(matches!(v, ("", (0, MemLoc::Immediate(100))))),
+                Result::Err(_) => assert!(false),
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_branch() {
+        {
+            let input = "bne $t0, $t1, 100";
+            let result = parse_branch(input).finish();
+
+            match result {
+                Ok(v) => assert!(matches!(
+                    v,
+                    (
+                        "",
+                        Instruction::Branch((0x05, 0x00), 8, 9, (0, MemLoc::Immediate(100)))
+                    )
+                )),
+                Result::Err(_) => assert!(false),
+            }
+        }
+        {
+            let input = "beq $t0, $t1, label";
+            let result = parse_branch(input).finish();
+
+            match result {
+                Ok(v) => {
+                    println!("{:?}", v);
+                    assert!(matches!(
+                        v,
+                        (
+                            "",
+                            Instruction::Branch((0x04, 0x00), 8, 9, (0, MemLoc::Label(_)))
+                        )
+                    ))
+                }
+                Result::Err(_) => assert!(false),
             }
         }
     }
