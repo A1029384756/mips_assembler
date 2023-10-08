@@ -13,23 +13,22 @@ use nom::{
 
 fn main() -> Result<(), ()> {
     let input = include_str!("../test_files/valid/test01.asm");
-    let preprocessed = preprocess(input)?;
-    if let Ok(result) = parse_asm(&preprocessed).finish() {
-        let assembly = assemble(&result.1);
-        match assembly {
-            Ok(asm) => {
-                asm.0.iter().for_each(|e| {
-                    print!("{:08X}\n", e);
-                });
-            }
-            Result::Err(_) => todo!(),
-        }
-    }
-
+    println!("{:?}", parse(input));
     Ok(())
 }
 
-fn preprocess(i: &str) -> Result<String, ()> {
+fn parse(i: &str) -> Result<(Vec<u32>, Vec<u8>), String> {
+    let preprocessed = preprocess(i)?;
+    match parse_asm(&preprocessed).finish() {
+        Ok(asm) => match assemble(&asm.1) {
+            Ok(out) => Ok(out),
+            Result::Err(e) => Err(e),
+        },
+        Result::Err(e) => Err(e.input.to_string()),
+    }
+}
+
+fn preprocess(i: &str) -> Result<String, String> {
     let out = i
         .lines()
         .filter_map(|line| {
@@ -43,12 +42,12 @@ fn preprocess(i: &str) -> Result<String, ()> {
             }
         })
         .reduce(|acc, e| acc + &e)
-        .ok_or(())?;
+        .ok_or("File empty")?;
 
     Ok(out)
 }
 
-fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
+fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
     let data = i
         .into_iter()
         .filter_map(|e| match e {
@@ -100,21 +99,23 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
     let mut insts: Vec<Instruction> = Vec::new();
     let mut inst_labels: HashMap<String, i64> = HashMap::new();
     let mut curr_line: i64 = 0;
-    lines.iter().for_each(|e| match e {
-        Line::Declaration(d) => {
-            match d {
-                Declaration::Label(l) => inst_labels.insert(l.to_owned(), curr_line * 4),
-                _ => panic!(),
-            };
+    for e in lines.iter() {
+        match e {
+            Line::Declaration(d) => {
+                match d {
+                    Declaration::Label(l) => inst_labels.insert(l.to_owned(), curr_line * 4),
+                    _ => return Err(format!("Out of place declaration: `{:#?}`", d)),
+                };
+            }
+            Line::Instruction(e) => {
+                insts.push(e.clone());
+                curr_line += 1;
+            }
         }
-        Line::Instruction(e) => {
-            insts.push(e.clone());
-            curr_line += 1;
-        }
-    });
+    }
 
     let mut assembled_insts: Vec<u32> = Vec::new();
-    insts.iter().for_each(|inst| {
+    for inst in insts.iter() {
         let mut assembled = 0;
         match inst {
             Instruction::ArithLogic(op, rd, rs, rt) => {
@@ -135,7 +136,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
                         Some(v) => {
                             assembled += (*v as u16) as i64;
                         }
-                        None => panic!(),
+                        None => return Err(format!("Invalid constant name `{c}`")),
                     },
                 }
             }
@@ -151,7 +152,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
                         Some(v) => {
                             assembled += v << 6;
                         }
-                        None => panic!(),
+                        None => return Err(format!("Invalid constant name `{c}`")),
                     },
                 }
             }
@@ -173,7 +174,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
                             assembled += rt << 16;
                             assembled += addr + memref.0;
                         }
-                        None => panic!(),
+                        None => return Err(format!("Invalid label name `{l}`")),
                     },
                     MemLoc::Immediate(imm) => {
                         // lui $1, 4097 - loads the data section into register $at
@@ -196,9 +197,9 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
                         assembled += rt << 16;
                         assembled += (offset as u16) as i64;
                     }
-                    None => panic!(),
+                    None => return Err(format!("Invalid label name `{l}`")),
                 },
-                _ => panic!(),
+                _ => return Err(format!("Invalid branch destination: `{:#?}`, must use label", memref.1)),
             },
             Instruction::Lui(op, rt, imm) => {
                 assembled += op.0 << 26;
@@ -211,7 +212,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
                         Some(v) => {
                             assembled += (*v as u16) as i64;
                         }
-                        None => panic!(),
+                        None => return Err(format!("Invalid constant name `{c}`")),
                     },
                 }
             }
@@ -222,9 +223,9 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
                         assembled += op.0 << 26;
                         assembled += offset;
                     }
-                    None => panic!(),
+                    None => return Err(format!("Invalid label name `{l}`")),
                 },
-                _ => panic!(),
+                _ => return Err(format!("Invalid jump destination: `{:#?}`, must use label", memref.1)),
             },
             Instruction::Jr(op, rs) => {
                 assembled += op.0 << 26;
@@ -233,7 +234,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), &str> {
             }
         };
         assembled_insts.push(assembled as u32);
-    });
+    }
 
     Ok((assembled_insts, data_mem))
 }
@@ -307,7 +308,14 @@ fn parse_asm(input: &str) -> IResult<&str, Vec<Section>> {
         multispace0,
     ))(input)?;
 
-    Ok((i, sections.into_iter().map(|e| e.1).collect()))
+    if !i.is_empty() {
+        Err(Err::Error(Error::from_error_kind(
+            input,
+            ErrorKind::Satisfy,
+        )))
+    } else {
+        Ok((i, sections.into_iter().map(|e| e.1).collect()))
+    }
 }
 
 // ------------------ Section Parsing ------------------

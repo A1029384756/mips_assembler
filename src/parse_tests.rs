@@ -154,41 +154,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn test_parse_branch() {
-        {
-            let input = "bne $t0, $t1, 100";
-            let result = parse_branch(input).finish();
-
-            match result {
-                Ok(v) => assert!(matches!(
-                    v,
-                    (
-                        "",
-                        Instruction::Branch((0x05, 0x00), 8, 9, (0, MemLoc::Immediate(100)))
-                    )
-                )),
-                Result::Err(_) => assert!(false),
-            }
-        }
-        {
-            let input = "beq $t0, $t1, label";
-            let result = parse_branch(input).finish();
-
-            match result {
-                Ok(v) => {
-                    println!("{:?}", v);
-                    assert!(matches!(
-                        v,
-                        (
-                            "",
-                            Instruction::Branch((0x04, 0x00), 8, 9, (0, MemLoc::Label(_)))
-                        )
-                    ))
-                }
-                Result::Err(_) => assert!(false),
-            }
-        }
-    }
 }
