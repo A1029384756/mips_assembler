@@ -11,13 +11,7 @@ use nom::{
     Err, Finish, IResult,
 };
 
-fn main() -> Result<(), ()> {
-    let input = include_str!("../test_files/valid/test01.asm");
-    println!("{:?}", parse(input));
-    Ok(())
-}
-
-fn parse(i: &str) -> Result<(Vec<u32>, Vec<u8>), String> {
+pub fn parse(i: &str) -> Result<(Vec<u32>, Vec<u8>), String> {
     let preprocessed = preprocess(i)?;
     match parse_asm(&preprocessed).finish() {
         Ok(asm) => match assemble(&asm.1) {
