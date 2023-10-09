@@ -204,12 +204,22 @@ mod tests {
             }
         }
         {
-            let input = include_str!("../test_files/valid/test03.asm");
+            let input = include_str!("../test_files/invalid/test01.asm");
             let result = parse(input);
 
             match result {
                 Ok(_) => assert!(false),
                 Err(e) => assert_eq!(e, "Parse error at: oi $t2, $t0, 3 "),
+            }
+        }
+
+        {
+            let input = include_str!("../test_files/invalid/test02.asm");
+            let result = parse(input);
+
+            match result {
+                Ok(_) => assert!(false),
+                Err(e) => assert_eq!(e, "File empty"),
             }
         }
     }
