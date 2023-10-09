@@ -5,20 +5,36 @@ use nom::{
     branch::alt,
     bytes::complete::{tag, take_until},
     character::complete::{alphanumeric1, i64, multispace0, multispace1},
-    error::{Error, ErrorKind, ParseError},
-    multi::many0,
+    error::{ErrorKind, ParseError},
+    multi::{many0, many1},
     sequence::{terminated, tuple},
-    Err, Finish, IResult,
+    Err, IResult,
+};
+use nom_locate::LocatedSpan;
+type Span<'a> = LocatedSpan<&'a str>;
+
+use nom_supreme::{
+    error::{ErrorTree, GenericErrorTree},
+    final_parser::final_parser,
 };
 
 pub fn parse(i: &str) -> Result<(Vec<u32>, Vec<u8>), String> {
     let preprocessed = preprocess(i)?;
-    match parse_asm(&preprocessed).finish() {
-        Ok(asm) => match assemble(&asm.1) {
+    let span = Span::new(&preprocessed);
+    let parse_result: Result<_, ErrorTree<Span>> = final_parser(parse_asm::<ErrorTree<Span>>)(span);
+    match parse_result {
+        Ok(asm) => match assemble(&asm) {
             Ok(out) => Ok(out),
-            Result::Err(e) => Err(e),
+            Err(e) => Err(e),
         },
-        Result::Err(e) => Err(e.input.to_string()),
+        Result::Err(e) => match e {
+            GenericErrorTree::Base { location, .. } => Err(format!(
+                "Parse error at: {}",
+                location.lines().next().unwrap_or("")
+            )),
+            GenericErrorTree::Stack { .. } => todo!(),
+            GenericErrorTree::Alt(_) => todo!(),
+        },
     }
 }
 
@@ -331,28 +347,20 @@ enum ImmArg {
     Constant(String),
 }
 
-fn parse_asm(input: &str) -> IResult<&str, Vec<Section>> {
-    let (i, (_, sections, _)) = tuple((
-        multispace0,
-        many0(tuple((
+fn parse_asm<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Vec<Section>, E> {
+    let (i, (sections, _)) = tuple((
+        many1(tuple((
             multispace0,
             alt((parse_data_section, parse_text_section)),
         ))),
         multispace0,
     ))(input)?;
 
-    if !i.is_empty() {
-        Err(Err::Error(Error::from_error_kind(
-            input,
-            ErrorKind::Satisfy,
-        )))
-    } else {
-        Ok((i, sections.into_iter().map(|e| e.1).collect()))
-    }
+    Ok((i, sections.into_iter().map(|e| e.1).collect()))
 }
 
 // ------------------ Section Parsing ------------------
-fn parse_data_section(input: &str) -> IResult<&str, Section> {
+fn parse_data_section<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Section, E> {
     let (i, (_, decls)) = tuple((
         tag(".data"),
         many0(tuple((
@@ -369,7 +377,7 @@ fn parse_data_section(input: &str) -> IResult<&str, Section> {
     Ok((i, Section::Data(decls.into_iter().map(|e| e.1).collect())))
 }
 
-fn parse_text_section(input: &str) -> IResult<&str, Section> {
+fn parse_text_section<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Section, E> {
     let (i, (_, instructions)) = tuple((
         tag(".text"),
         many0(tuple((
@@ -394,20 +402,20 @@ fn parse_text_section(input: &str) -> IResult<&str, Section> {
     ))
 }
 
-fn parse_label_decl_data(input: &str) -> IResult<&str, Line> {
+fn parse_label_decl_data<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, label) = parse_label_decl(input)?;
     Ok((i, Line::Declaration(label)))
 }
 
 // ------------------ ASM Data Declarations ------------------
-fn parse_mem_decl(input: &str) -> IResult<&str, Declaration> {
+fn parse_mem_decl<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Declaration, E> {
     let (i, (t, _, val)) = tuple((
         alt((tag(".word"), tag(".half"), tag(".byte"), tag(".space"))),
         multispace1,
         i64,
     ))(input)?;
 
-    match t {
+    match *t.fragment() {
         ".word" => {
             if valid_int_size(val, 32) {
                 return Ok((i, Declaration::Allocation(Allocation::Value(val, 4))));
@@ -431,10 +439,15 @@ fn parse_mem_decl(input: &str) -> IResult<&str, Declaration> {
         _ => {}
     }
 
-    Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+    Err(Err::Error(ParseError::from_error_kind(
+        input,
+        ErrorKind::IsNot,
+    )))
 }
 
-fn parse_string_decl(input: &str) -> IResult<&str, Declaration> {
+fn parse_string_decl<'a, E: ParseError<Span<'a>>>(
+    input: Span<'a>,
+) -> IResult<Span, Declaration, E> {
     let (i, (t, _, _, val, _)) = tuple((
         alt((tag(".asciiz"), tag(".ascii"))),
         multispace1,
@@ -442,7 +455,7 @@ fn parse_string_decl(input: &str) -> IResult<&str, Declaration> {
         take_until("\""),
         tag("\""),
     ))(input)?;
-    match t {
+    match *t.fragment() {
         ".ascii" => Ok((
             i,
             Declaration::Allocation(Allocation::String(StringAllocation::Ascii(val.to_string()))),
@@ -453,38 +466,47 @@ fn parse_string_decl(input: &str) -> IResult<&str, Declaration> {
                 val.to_string(),
             ))),
         )),
-        _ => Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot))),
+        _ => Err(Err::Error(ParseError::from_error_kind(
+            input,
+            ErrorKind::IsNot,
+        ))),
     }
 }
 
-fn parse_const_decl(input: &str) -> IResult<&str, Declaration> {
+fn parse_const_decl<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Declaration, E> {
     let (i, (name, _, _, _, val)) =
         tuple((parse_var, multispace0, tag("="), multispace0, i64))(input)?;
 
     if valid_int_size(val, 32) {
         Ok((i, Declaration::Constant((name.to_string(), val))))
     } else {
-        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+        Err(Err::Error(ParseError::from_error_kind(
+            input,
+            ErrorKind::IsNot,
+        )))
     }
 }
 
-fn parse_label_decl(input: &str) -> IResult<&str, Declaration> {
+fn parse_label_decl<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Declaration, E> {
     let (i, label) = terminated(parse_var, tag(":"))(input)?;
     Ok((i, Declaration::Label(label.to_string())))
 }
 
 // ------------------ General Purpose Parsers ------------------
-fn parse_var(input: &str) -> IResult<&str, &str> {
+fn parse_var<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, &str, E> {
     let (i, str) = alphanumeric1(input)?;
     if str.chars().next().unwrap().is_alphabetic() {
-        Ok((i, str))
+        Ok((i, &str.fragment()))
     } else {
-        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+        Err(Err::Error(ParseError::from_error_kind(
+            input,
+            ErrorKind::IsNot,
+        )))
     }
 }
 
 // ------------------ Instruction Parsers ------------------
-fn parse_jr(input: &str) -> IResult<&str, Line> {
+fn parse_jr<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, reg)) = tuple((tag("jr"), multispace1, parse_register))(input)?;
 
     Ok((
@@ -493,7 +515,7 @@ fn parse_jr(input: &str) -> IResult<&str, Line> {
     ))
 }
 
-fn parse_jump(input: &str) -> IResult<&str, Line> {
+fn parse_jump<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, mem)) = tuple((alt((tag("j"), tag("jal"))), multispace1, parse_memref))(input)?;
 
     Ok((
@@ -502,7 +524,7 @@ fn parse_jump(input: &str) -> IResult<&str, Line> {
     ))
 }
 
-fn parse_lui(input: &str) -> IResult<&str, Line> {
+fn parse_lui<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rd, _, _, imm)) = tuple((
         tag("lui"),
         multispace1,
@@ -520,7 +542,10 @@ fn parse_lui(input: &str) -> IResult<&str, Line> {
                     Line::Instruction(Instruction::Lui(op_to_opcode_func(op), rd, imm)),
                 ))
             } else {
-                Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+                Err(Err::Error(ParseError::from_error_kind(
+                    input,
+                    ErrorKind::IsNot,
+                )))
             }
         }
         ImmArg::Constant(_) => Ok((
@@ -530,7 +555,7 @@ fn parse_lui(input: &str) -> IResult<&str, Line> {
     }
 }
 
-fn parse_branch(input: &str) -> IResult<&str, Line> {
+fn parse_branch<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rt, _, _, rs, _, _, mr)) = tuple((
         alt((tag("beq"), tag("bne"))),
         multispace1,
@@ -549,7 +574,7 @@ fn parse_branch(input: &str) -> IResult<&str, Line> {
     ))
 }
 
-fn parse_load_store(input: &str) -> IResult<&str, Line> {
+fn parse_load_store<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rt, _, _, mr)) = tuple((
         alt((
             tag("lbu"),
@@ -574,7 +599,7 @@ fn parse_load_store(input: &str) -> IResult<&str, Line> {
     ))
 }
 
-fn parse_shift(input: &str) -> IResult<&str, Line> {
+fn parse_shift<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rd, _, _, rs, _, _, shamt)) = tuple((
         alt((tag("sll"), tag("srl"))),
         multispace1,
@@ -595,7 +620,10 @@ fn parse_shift(input: &str) -> IResult<&str, Line> {
                     Line::Instruction(Instruction::Shift(op_to_opcode_func(op), rd, rs, shamt)),
                 ))
             } else {
-                Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+                Err(Err::Error(ParseError::from_error_kind(
+                    input,
+                    ErrorKind::IsNot,
+                )))
             }
         }
         ImmArg::Constant(_) => Ok((
@@ -605,7 +633,7 @@ fn parse_shift(input: &str) -> IResult<&str, Line> {
     }
 }
 
-fn parse_arith_log(input: &str) -> IResult<&str, Line> {
+fn parse_arith_log<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rd, _, _, rs, _, _, rt)) = tuple((
         alt((
             tag("add"),
@@ -634,7 +662,7 @@ fn parse_arith_log(input: &str) -> IResult<&str, Line> {
     ))
 }
 
-fn parse_arith_log_imm(input: &str) -> IResult<&str, Line> {
+fn parse_arith_log_imm<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rd, _, _, rs, _, _, imm)) = tuple((
         alt((
             tag("addi"),
@@ -667,7 +695,10 @@ fn parse_arith_log_imm(input: &str) -> IResult<&str, Line> {
                     )),
                 ))
             } else {
-                Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+                Err(Err::Error(ParseError::from_error_kind(
+                    input,
+                    ErrorKind::IsNot,
+                )))
             }
         }
         ImmArg::Constant(_) => Ok((
@@ -683,7 +714,7 @@ fn parse_arith_log_imm(input: &str) -> IResult<&str, Line> {
 }
 
 // ------------------ Component Parsers ------------------
-fn parse_memref(input: &str) -> IResult<&str, MemRef> {
+fn parse_memref<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, MemRef, E> {
     alt((
         parse_reg_mem_normal,
         parse_reg_mem_offset,
@@ -693,45 +724,55 @@ fn parse_memref(input: &str) -> IResult<&str, MemRef> {
     ))(input)
 }
 
-fn parse_label_mem_normal(input: &str) -> IResult<&str, MemRef> {
+fn parse_label_mem_normal<'a, E: ParseError<Span<'a>>>(
+    input: Span<'a>,
+) -> IResult<Span, MemRef, E> {
     let (i, label) = parse_var(input)?;
     Ok((i, (0, MemLoc::Label(label.to_string()))))
 }
 
-fn parse_label_mem_offset(input: &str) -> IResult<&str, MemRef> {
+fn parse_label_mem_offset<'a, E: ParseError<Span<'a>>>(
+    input: Span<'a>,
+) -> IResult<Span, MemRef, E> {
     let (i, (offset, _, label, _)) = tuple((i64, tag("("), parse_var, tag(")")))(input)?;
     Ok((i, (offset, MemLoc::Label(label.to_string()))))
 }
 
-fn parse_reg_mem_normal(input: &str) -> IResult<&str, MemRef> {
+fn parse_reg_mem_normal<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, MemRef, E> {
     let (i, reg) = parse_register(input)?;
     Ok((i, (0, MemLoc::Register(reg))))
 }
 
-fn parse_reg_mem_offset(input: &str) -> IResult<&str, MemRef> {
+fn parse_reg_mem_offset<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, MemRef, E> {
     let (i, (offset, _, reg, _)) = tuple((i64, tag("("), parse_register, tag(")")))(input)?;
 
     let offset_int = offset;
     if valid_int_size(offset_int, 16) {
         Ok((i, (offset_int, MemLoc::Register(reg))))
     } else {
-        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+        Err(Err::Error(ParseError::from_error_kind(
+            input,
+            ErrorKind::IsNot,
+        )))
     }
 }
 
-fn parse_immediate_arg(input: &str) -> IResult<&str, MemRef> {
+fn parse_immediate_arg<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, MemRef, E> {
     let (i, imm) = i64(input)?;
     if valid_int_size(imm, 16) {
         Ok((i, (0, MemLoc::Immediate(imm))))
     } else {
-        Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+        Err(Err::Error(ParseError::from_error_kind(
+            input,
+            ErrorKind::IsNot,
+        )))
     }
 }
 
-fn parse_register(input: &str) -> IResult<&str, Register> {
+fn parse_register<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Register, E> {
     let (i, (_, reg)) = tuple((tag("$"), alphanumeric1))(input)?;
 
-    match reg {
+    match *reg.fragment() {
         "0" | "zero" => Ok((i, 0)),
         "1" | "at" => Ok((i, 1)),
         "2" | "v0" => Ok((i, 2)),
@@ -764,27 +805,30 @@ fn parse_register(input: &str) -> IResult<&str, Register> {
         "29" | "sp" => Ok((i, 29)),
         "30" | "fp" => Ok((i, 30)),
         "31" | "ra" => Ok((i, 31)),
-        _ => Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot))),
+        _ => Err(Err::Error(ParseError::from_error_kind(
+            input,
+            ErrorKind::IsNot,
+        ))),
     }
 }
 
-fn parse_immarg(input: &str) -> IResult<&str, ImmArg> {
+fn parse_immarg<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, ImmArg, E> {
     alt((parse_immarg_imm, parse_immarg_const))(input)
 }
 
-fn parse_immarg_imm(input: &str) -> IResult<&str, ImmArg> {
+fn parse_immarg_imm<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, ImmArg, E> {
     let (i, imm) = i64(input)?;
     Ok((i, ImmArg::Immediate(imm)))
 }
 
-fn parse_immarg_const(input: &str) -> IResult<&str, ImmArg> {
+fn parse_immarg_const<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, ImmArg, E> {
     let (i, imm) = parse_var(input)?;
     Ok((i, ImmArg::Constant(imm.to_string())))
 }
 
 // ------------------ Conversion and Validation Functions ------------------
-fn op_to_opcode_func(input: &str) -> Operation {
-    match input {
+fn op_to_opcode_func<'a>(input: Span<'a>) -> Operation {
+    match *input.fragment() {
         "add" => (0x00, 0x20),
         "addi" => (0x08, 0x00),
         "addiu" => (0x09, 0x00),
