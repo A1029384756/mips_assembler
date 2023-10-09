@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use nom::{
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{tag, take_until},
     character::complete::{alphanumeric1, i64, multispace0, multispace1},
     error::{Error, ErrorKind, ParseError},
     multi::many0,
@@ -67,7 +67,25 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
                     });
                     mem_back_ptr += size;
                 }
-                Allocation::Space(size) => mem_back_ptr += size,
+                Allocation::Space(size) => {
+                    data_mem.push(0x00);
+                    mem_back_ptr += size;
+                }
+                Allocation::String(alloc) => match alloc {
+                    StringAllocation::Ascii(str) => {
+                        for ele in str.as_bytes() {
+                            data_mem.push(*ele);
+                        }
+                        mem_back_ptr += str.len() as i64;
+                    }
+                    StringAllocation::Asciiz(str) => {
+                        for ele in str.as_bytes() {
+                            data_mem.push(*ele);
+                        }
+                        data_mem.push(0x00);
+                        mem_back_ptr += str.len() as i64 + 1;
+                    }
+                },
             },
             Declaration::Label(l) => {
                 mem_labels.insert(l.clone(), mem_back_ptr);
@@ -197,7 +215,12 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
                     }
                     None => return Err(format!("Invalid label name `{l}`")),
                 },
-                _ => return Err(format!("Invalid branch destination: `{:#?}`, must use label", memref.1)),
+                _ => {
+                    return Err(format!(
+                        "Invalid branch destination: `{:#?}`, must use label",
+                        memref.1
+                    ))
+                }
             },
             Instruction::Lui(op, rt, imm) => {
                 assembled += op.0 << 26;
@@ -223,7 +246,12 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
                     }
                     None => return Err(format!("Invalid label name `{l}`")),
                 },
-                _ => return Err(format!("Invalid jump destination: `{:#?}`, must use label", memref.1)),
+                _ => {
+                    return Err(format!(
+                        "Invalid jump destination: `{:#?}`, must use label",
+                        memref.1
+                    ))
+                }
             },
             Instruction::Jr(op, rs) => {
                 assembled += op.0 << 26;
@@ -255,6 +283,13 @@ enum Declaration {
 enum Allocation {
     Value(i64, i64),
     Space(i64),
+    String(StringAllocation),
+}
+
+#[derive(Debug, Clone)]
+enum StringAllocation {
+    Ascii(String),
+    Asciiz(String),
 }
 
 type Label = String;
@@ -322,7 +357,12 @@ fn parse_data_section(input: &str) -> IResult<&str, Section> {
         tag(".data"),
         many0(tuple((
             multispace1,
-            alt((parse_mem_decl, parse_const_decl, parse_label_decl)),
+            alt((
+                parse_mem_decl,
+                parse_const_decl,
+                parse_label_decl,
+                parse_string_decl,
+            )),
         ))),
     ))(input)?;
 
@@ -361,11 +401,10 @@ fn parse_label_decl_data(input: &str) -> IResult<&str, Line> {
 
 // ------------------ ASM Data Declarations ------------------
 fn parse_mem_decl(input: &str) -> IResult<&str, Declaration> {
-    let (i, (t, _, val)) = alt((
-        tuple((tag(".word"), multispace1, i64)),
-        tuple((tag(".half"), multispace1, i64)),
-        tuple((tag(".byte"), multispace1, i64)),
-        tuple((tag(".space"), multispace1, i64)),
+    let (i, (t, _, val)) = tuple((
+        alt((tag(".word"), tag(".half"), tag(".byte"), tag(".space"))),
+        multispace1,
+        i64,
     ))(input)?;
 
     match t {
@@ -390,9 +429,32 @@ fn parse_mem_decl(input: &str) -> IResult<&str, Declaration> {
             }
         }
         _ => {}
-    };
+    }
 
     Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot)))
+}
+
+fn parse_string_decl(input: &str) -> IResult<&str, Declaration> {
+    let (i, (t, _, _, val, _)) = tuple((
+        alt((tag(".asciiz"), tag(".ascii"))),
+        multispace1,
+        tag("\""),
+        take_until("\""),
+        tag("\""),
+    ))(input)?;
+    match t {
+        ".ascii" => Ok((
+            i,
+            Declaration::Allocation(Allocation::String(StringAllocation::Ascii(val.to_string()))),
+        )),
+        ".asciiz" => Ok((
+            i,
+            Declaration::Allocation(Allocation::String(StringAllocation::Asciiz(
+                val.to_string(),
+            ))),
+        )),
+        _ => Err(Err::Error(Error::from_error_kind(input, ErrorKind::IsNot))),
+    }
 }
 
 fn parse_const_decl(input: &str) -> IResult<&str, Declaration> {
