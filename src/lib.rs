@@ -62,7 +62,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
         match elem {
             Declaration::Allocation(a) => match a {
                 Allocation::Value(num, size) => {
-                    num.to_be_bytes().iter().for_each(|e| {
+                    (*num as u32).to_be_bytes().iter().for_each(|e| {
                         data_mem.push(*e);
                     });
                     mem_back_ptr += size;
