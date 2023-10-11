@@ -193,8 +193,8 @@ mod tests {
                 Ok(r) => {
                     let expected_instructions: Vec<u32> = vec![0x01084020];
                     let expected_memory = vec![
-                        0, 0, 4, 0, 0, 12, 0, 1, 0, 104, 101, 108, 108,
-                        111, 103, 111, 111, 100, 98, 121, 101, 0,
+                        0, 0, 4, 0, 0, 12, 0, 1, 0, 104, 101, 108, 108, 111, 103, 111, 111, 100,
+                        98, 121, 101, 0,
                     ];
 
                     assert_eq!(expected_instructions, r.0);
