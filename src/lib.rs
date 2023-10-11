@@ -78,8 +78,9 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
         match elem {
             Declaration::Allocation(a) => match a {
                 Allocation::Value(num, size) => {
-                    (*num as u32).to_be_bytes().iter().for_each(|e| {
-                        data_mem.push(*e);
+                    let bytes = (*num as u32).to_be_bytes();
+                    ((4 - *size as usize)..4).for_each(|idx| {
+                        data_mem.push(bytes[idx]);
                     });
                     mem_back_ptr += size;
                 }
