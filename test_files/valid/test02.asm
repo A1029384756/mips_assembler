@@ -8,8 +8,6 @@ var3:	.byte 0                # char var3 = 0
 
 var4:	.byte 1
 
-var5:	.space 512             # reserve 512 bytes
-
 var6:	.ascii "hello"
 
 var7:	.asciiz "goodbye"

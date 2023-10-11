@@ -85,7 +85,9 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
                     mem_back_ptr += size;
                 }
                 Allocation::Space(size) => {
-                    data_mem.push(0x00);
+                    (0..*size).for_each(|_| {
+                        data_mem.push(0x00);
+                    });
                     mem_back_ptr += size;
                 }
                 Allocation::String(alloc) => match alloc {
