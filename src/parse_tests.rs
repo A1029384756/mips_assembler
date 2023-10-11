@@ -11,7 +11,7 @@ mod tests {
 
             match result {
                 Ok(v) => assert_eq!(v, 19),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
         {
@@ -19,10 +19,7 @@ mod tests {
             let result: Result<i64, ErrorTree<Span>> =
                 final_parser(parse_register::<ErrorTree<Span>>)(input);
 
-            match result {
-                Ok(_) => assert!(false),
-                Err(_) => assert!(true),
-            }
+            assert!(result.is_err());
         }
     }
 
@@ -35,7 +32,7 @@ mod tests {
 
             match result {
                 Ok(v) => assert!(matches!(v, Declaration::Constant((_, 3)))),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
         {
@@ -43,10 +40,7 @@ mod tests {
             let result: Result<Declaration, ErrorTree<Span>> =
                 final_parser(parse_const_decl::<ErrorTree<Span>>)(input);
 
-            match result {
-                Ok(_) => assert!(false),
-                Err(_) => assert!(true),
-            }
+            assert!(result.is_err());
         }
     }
 
@@ -59,7 +53,7 @@ mod tests {
 
             match result {
                 Ok(v) => assert!(matches!(v, Declaration::Label(_))),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
         {
@@ -67,10 +61,7 @@ mod tests {
             let result: Result<Declaration, ErrorTree<Span>> =
                 final_parser(parse_label_decl::<ErrorTree<Span>>)(input);
 
-            match result {
-                Ok(_) => assert!(false),
-                Err(_) => assert!(true),
-            }
+            assert!(result.is_err());
         }
     }
 
@@ -83,7 +74,7 @@ mod tests {
 
             match result {
                 Ok(v) => assert!(matches!(v, Declaration::Allocation(Allocation::Space(100)))),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
         {
@@ -91,10 +82,7 @@ mod tests {
             let result: Result<Declaration, ErrorTree<Span>> =
                 final_parser(parse_mem_decl::<ErrorTree<Span>>)(input);
 
-            match result {
-                Ok(_) => assert!(false),
-                Result::Err(_) => assert!(true),
-            }
+            assert!(result.is_err());
         }
         {
             let input = Span::new(".byte 255");
@@ -106,7 +94,7 @@ mod tests {
                     v,
                     Declaration::Allocation(Allocation::Value(255, 1))
                 )),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
         {
@@ -114,10 +102,7 @@ mod tests {
             let result: Result<Declaration, ErrorTree<Span>> =
                 final_parser(parse_mem_decl::<ErrorTree<Span>>)(input);
 
-            match result {
-                Ok(_) => assert!(false),
-                Result::Err(_) => assert!(true),
-            }
+            assert!(result.is_err());
         }
     }
 
@@ -130,7 +115,7 @@ mod tests {
 
             match result {
                 Ok(v) => assert!(matches!(v, (-3, MemLoc::Register(29)))),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
         {
@@ -140,7 +125,7 @@ mod tests {
 
             match result {
                 Ok(v) => assert!(matches!(v, (0, MemLoc::Register(29)))),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
         {
@@ -148,10 +133,7 @@ mod tests {
             let result: Result<(i64, MemLoc), ErrorTree<Span>> =
                 final_parser(parse_memref::<ErrorTree<Span>>)(input);
 
-            match result {
-                Ok(_) => assert!(false),
-                Err(_) => assert!(true),
-            }
+            assert!(result.is_err());
         }
         {
             let input = Span::new("100");
@@ -160,7 +142,7 @@ mod tests {
 
             match result {
                 Ok(v) => assert!(matches!(v, (0, MemLoc::Immediate(100)))),
-                Result::Err(_) => assert!(false),
+                Result::Err(_) => panic!(),
             }
         }
     }
@@ -182,7 +164,7 @@ mod tests {
                     assert_eq!(expected_instructions, r.0);
                     assert_eq!(expected_memory, r.1);
                 }
-                Err(_) => assert!(false),
+                Err(_) => panic!(),
             }
         }
         {
@@ -193,14 +175,14 @@ mod tests {
                 Ok(r) => {
                     let expected_instructions: Vec<u32> = vec![0x01084020];
                     let expected_memory = vec![
-                        0, 0, 4, 0, 0, 12, 0, 1, 104, 101, 108, 108, 111, 103, 111, 111, 100,
-                        98, 121, 101, 0,
+                        0, 0, 4, 0, 0, 12, 0, 1, 104, 101, 108, 108, 111, 103, 111, 111, 100, 98,
+                        121, 101, 0,
                     ];
 
                     assert_eq!(expected_instructions, r.0);
                     assert_eq!(expected_memory, r.1);
                 }
-                Err(_) => assert!(false),
+                Err(_) => panic!(),
             }
         }
         {
@@ -208,7 +190,7 @@ mod tests {
             let result = parse(input);
 
             match result {
-                Ok(_) => assert!(false),
+                Ok(_) => panic!(),
                 Err(e) => assert_eq!(e, "Parse error at: oi $t2, $t0, 3 "),
             }
         }
@@ -218,7 +200,7 @@ mod tests {
             let result = parse(input);
 
             match result {
-                Ok(_) => assert!(false),
+                Ok(_) => panic!(),
                 Err(e) => assert_eq!(e, "File empty"),
             }
         }

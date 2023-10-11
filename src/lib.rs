@@ -57,9 +57,9 @@ fn preprocess(i: &str) -> Result<String, String> {
     Ok(out)
 }
 
-fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
+fn assemble(i: &[Section]) -> Result<(Vec<u32>, Vec<u8>), String> {
     let data = i
-        .into_iter()
+        .iter()
         .filter_map(|e| match e {
             Section::Data(data) => Some(data.clone()),
             Section::Text(_) => None,
@@ -116,7 +116,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
     });
 
     let lines = i
-        .into_iter()
+        .iter()
         .filter_map(|e| match e {
             Section::Data(_) => None,
             Section::Text(t) => Some(t.clone()),
@@ -145,7 +145,7 @@ fn assemble(i: &Vec<Section>) -> Result<(Vec<u32>, Vec<u8>), String> {
         }
     }
 
-    if let None = inst_labels.get("main") {
+    if inst_labels.get("main").is_none() {
         return Err("Missing main label".to_string());
     }
 
@@ -830,7 +830,7 @@ fn parse_immarg_const<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<S
 }
 
 // ------------------ Conversion and Validation Functions ------------------
-fn op_to_opcode_func<'a>(input: Span<'a>) -> Operation {
+fn op_to_opcode_func(input: Span<'_>) -> Operation {
     match *input.fragment() {
         "add" => (0x00, 0x20),
         "addi" => (0x08, 0x00),
