@@ -6,7 +6,7 @@ use nom::{
     bytes::complete::{tag, take_until},
     character::complete::{alphanumeric1, i64, multispace0, multispace1},
     error::{ErrorKind, ParseError},
-    multi::{many0, many1},
+    multi::{many0, many1, separated_list1},
     sequence::{terminated, tuple},
     Err, IResult,
 };
@@ -77,18 +77,22 @@ fn assemble(i: &[Section]) -> Result<(Vec<u32>, Vec<u8>), String> {
     data.iter().for_each(|elem| {
         match elem {
             Declaration::Allocation(a) => match a {
-                Allocation::Value(num, size) => {
-                    let bytes = (*num as u32).to_be_bytes();
-                    ((4 - *size as usize)..4).for_each(|idx| {
-                        data_mem.push(bytes[idx]);
+                Allocation::Value(nums, size) => {
+                    nums.iter().for_each(|num| {
+                        let bytes = (*num as u32).to_be_bytes();
+                        ((4 - *size as usize)..4).for_each(|idx| {
+                            data_mem.push(bytes[idx]);
+                        });
+                        mem_back_ptr += size;
                     });
-                    mem_back_ptr += size;
                 }
-                Allocation::Space(size) => {
-                    (0..*size).for_each(|_| {
-                        data_mem.push(0x00);
+                Allocation::Space(sizes) => {
+                    sizes.iter().for_each(|size| {
+                        (0..*size).for_each(|_| {
+                            data_mem.push(0x00);
+                        });
+                        mem_back_ptr += size;
                     });
-                    mem_back_ptr += size;
                 }
                 Allocation::String(alloc) => match alloc {
                     StringAllocation::Ascii(str) => {
@@ -300,8 +304,8 @@ enum Declaration {
 
 #[derive(Debug, Clone)]
 enum Allocation {
-    Value(i64, i64),
-    Space(i64),
+    Value(Vec<i64>, i64),
+    Space(Vec<i64>),
     String(StringAllocation),
 }
 
@@ -412,31 +416,31 @@ fn parse_label_decl_data<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResul
 
 // ------------------ ASM Data Declarations ------------------
 fn parse_mem_decl<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Declaration, E> {
-    let (i, (t, _, val)) = tuple((
+    let (i, (t, _, vals)) = tuple((
         alt((tag(".word"), tag(".half"), tag(".byte"), tag(".space"))),
         multispace1,
-        i64,
+        separated_list1(tag(", "), i64),
     ))(input)?;
 
     match *t.fragment() {
         ".word" => {
-            if valid_int_size(val, 32) {
-                return Ok((i, Declaration::Allocation(Allocation::Value(val, 4))));
+            if vals.iter().all(|val| valid_int_size(*val, 32)) {
+                return Ok((i, Declaration::Allocation(Allocation::Value(vals, 4))));
             }
         }
         ".half" => {
-            if valid_int_size(val, 16) {
-                return Ok((i, Declaration::Allocation(Allocation::Value(val, 2))));
+            if vals.iter().all(|val| valid_int_size(*val, 16)) {
+                return Ok((i, Declaration::Allocation(Allocation::Value(vals, 2))));
             }
         }
         ".byte" => {
-            if valid_int_size(val, 8) {
-                return Ok((i, Declaration::Allocation(Allocation::Value(val, 1))));
+            if vals.iter().all(|val| valid_int_size(*val, 8)) {
+                return Ok((i, Declaration::Allocation(Allocation::Value(vals, 1))));
             }
         }
         ".space" => {
-            if u32::try_from(val).is_ok() {
-                return Ok((i, Declaration::Allocation(Allocation::Space(val))));
+            if vals.iter().all(|val| u32::try_from(*val).is_ok()) {
+                return Ok((i, Declaration::Allocation(Allocation::Space(vals))));
             }
         }
         _ => {}

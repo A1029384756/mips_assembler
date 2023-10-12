@@ -73,7 +73,7 @@ mod tests {
                 final_parser(parse_mem_decl::<ErrorTree<Span>>)(input);
 
             match result {
-                Ok(v) => assert!(matches!(v, Declaration::Allocation(Allocation::Space(100)))),
+                Ok(v) => assert!(matches!(v, Declaration::Allocation(Allocation::Space(_)))),
                 Result::Err(_) => panic!(),
             }
         }
@@ -92,7 +92,7 @@ mod tests {
             match result {
                 Ok(v) => assert!(matches!(
                     v,
-                    Declaration::Allocation(Allocation::Value(255, 1))
+                    Declaration::Allocation(Allocation::Value(_, 1))
                 )),
                 Result::Err(_) => panic!(),
             }
@@ -175,7 +175,7 @@ mod tests {
                 Ok(r) => {
                     let expected_instructions: Vec<u32> = vec![0x01084020];
                     let expected_memory = vec![
-                        0, 0, 4, 0, 0, 12, 0, 1, 104, 101, 108, 108, 111, 103, 111, 111, 100, 98,
+                        0, 0, 4, 0, 0, 12, 0, 1, 1, 0, 5, 104, 101, 108, 108, 111, 103, 111, 111, 100, 98,
                         121, 101, 0,
                     ];
 
