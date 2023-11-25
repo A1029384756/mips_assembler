@@ -157,7 +157,7 @@ mod tests {
                 Ok(r) => {
                     let expected_instructions: Vec<u32> = vec![
                         0x3c011001, 0x8c280000, 0x3c011001, 0x8c290004, 0x3c011001, 0xac290004,
-                        0x01095025, 0x350a0003, 0x1129fff8, 0x01200008, 0x000d60c0,
+                        0x01095025, 0x350a0003, 0x1129fff8, 0x01200008, 0x000d60c0, 0x08100000, 0x08100003,
                     ];
                     let expected_memory = vec![0, 0, 0, 12, 0, 0, 0, 10];
 

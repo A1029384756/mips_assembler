@@ -8,8 +8,11 @@ main:
         lw $t1, var2
         # test 2
         sw $t1, var2 #test 3 sw $t1, var3
+l1:
         or $t2, $t0, $t1  
         ori $t2, $t0, 3 
         beq $t1, $t1, main
         jr $t1
         sll $t4, $t5, VALUE
+        j main
+        j l1

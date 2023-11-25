@@ -263,9 +263,8 @@ fn assemble(i: &[Section]) -> Result<(Vec<u32>, Vec<u8>), String> {
             Instruction::Jump(op, memref) => match memref.1.clone() {
                 MemLoc::Label(l) => match inst_labels.get(&l) {
                     Some(line) => {
-                        let offset = line - (inst_labels.len() as i64);
                         assembled += op.0 << 26;
-                        assembled += offset;
+                        assembled += 0x000100000 + (line >> 2);
                     }
                     None => return Err(format!("Invalid label name `{l}`")),
                 },
