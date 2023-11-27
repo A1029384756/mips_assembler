@@ -42,7 +42,7 @@ fn preprocess(i: &str) -> Result<String, String> {
     let out = i
         .lines()
         .filter_map(|line| {
-            if line.starts_with('#') {
+            if line.starts_with('#') || line.is_empty() {
                 None
             } else {
                 match line.split_once('#') {
