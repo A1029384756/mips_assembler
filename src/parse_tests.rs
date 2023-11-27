@@ -158,7 +158,7 @@ mod tests {
                     let expected_instructions: Vec<u32> = vec![
                         0x3c011001, 0x8c280000, 0x3c011001, 0x8c290004, 0x3c011001, 0xac290004,
                         0x01095025, 0x350a0003, 0x1129fff8, 0x01200008, 0x000d60c0, 0x08100000,
-                        0x08100003,
+                        0x08100006,
                     ];
                     let expected_memory = vec![0, 0, 0, 12, 0, 0, 0, 10];
 
@@ -187,6 +187,25 @@ mod tests {
             }
         }
         {
+            let input = include_str!("../test_files/valid/test03.asm");
+            let result = parse(input);
+
+            match result {
+                Ok(r) => {
+                    let expected_instructions: Vec<u32> = vec![
+                        0x3c011001, 0x8c280000, 0x20090001, 0x200a0000, 0x200d0001, 0x200c0000,
+                        0x01695820, 0x218c0001, 0x1589fffe, 0x014b5020, 0x21290001, 0x0128602a,
+                        0x118dfff9, 0x1128fff8, 0x3c011001, 0xac2a0004, 0x08100010,
+                    ];
+                    let expected_memory = vec![0, 0, 0, 10, 0, 0, 0, 0];
+
+                    assert_eq!(expected_instructions, r.0);
+                    assert_eq!(expected_memory, r.1);
+                }
+                Err(_) => panic!(),
+            }
+        }
+        {
             let input = include_str!("../test_files/invalid/test01.asm");
             let result = parse(input);
 
@@ -195,7 +214,6 @@ mod tests {
                 Err(e) => assert_eq!(e, "Parse error at: oi $t2, $t0, 3 "),
             }
         }
-
         {
             let input = include_str!("../test_files/invalid/test02.asm");
             let result = parse(input);

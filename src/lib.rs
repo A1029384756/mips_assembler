@@ -149,7 +149,13 @@ fn assemble(i: &[Section]) -> Result<(Vec<u32>, Vec<u8>), String> {
             }
             Line::Instruction(e) => {
                 insts.push(e.clone());
-                curr_line += 1;
+                match e {
+                    Instruction::LoadStore(_, _, memref) => match memref.1.clone() {
+                        MemLoc::Register(_) => curr_line += 1,
+                        MemLoc::Label(_) | MemLoc::Immediate(_) => curr_line += 2,
+                    },
+                    _ => curr_line += 1,
+                };
             }
         }
     }
