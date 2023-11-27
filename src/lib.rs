@@ -138,7 +138,12 @@ fn assemble(i: &[Section]) -> Result<(Vec<u32>, Vec<u8>), String> {
         match e {
             Line::Declaration(d) => {
                 match d {
-                    Declaration::Label(l) => inst_labels.insert(l.to_owned(), curr_line * 4),
+                    Declaration::Label(l) => {
+                        if inst_labels.contains_key(l) {
+                            return Err(format!("Duplicate Label: `{:#?}`", d));
+                        }
+                        inst_labels.insert(l.to_owned(), curr_line)
+                    }
                     _ => return Err(format!("Out of place declaration: `{:#?}`", d)),
                 };
             }
@@ -264,7 +269,7 @@ fn assemble(i: &[Section]) -> Result<(Vec<u32>, Vec<u8>), String> {
                 MemLoc::Label(l) => match inst_labels.get(&l) {
                     Some(line) => {
                         assembled += op.0 << 26;
-                        assembled += 0x000100000 + (line >> 2);
+                        assembled += 0x000100000 + line;
                     }
                     None => return Err(format!("Invalid label name `{l}`")),
                 },
