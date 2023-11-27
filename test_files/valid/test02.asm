@@ -15,4 +15,3 @@ var7:	.asciiz "goodbye"
 	.text
 main:
   add $t0, $t0, $t0	
-

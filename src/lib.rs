@@ -22,6 +22,8 @@ pub fn parse(i: &str) -> Result<(Vec<u32>, Vec<u8>), String> {
     let preprocessed = preprocess(i)?;
     let span = Span::new(&preprocessed);
     let parse_result: Result<_, ErrorTree<Span>> = final_parser(parse_asm::<ErrorTree<Span>>)(span);
+
+    println!("{parse_result:?}");
     match parse_result {
         Ok(asm) => match assemble(&asm) {
             Ok(out) => Ok(out),
@@ -653,15 +655,15 @@ fn parse_shift<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Li
 fn parse_arith_log<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rd, _, _, rs, _, _, rt)) = tuple((
         alt((
-            tag("add"),
             tag("addu"),
+            tag("add"),
             tag("and"),
             tag("nor"),
             tag("or"),
-            tag("sub"),
             tag("subu"),
-            tag("slt"),
+            tag("sub"),
             tag("sltu"),
+            tag("slt"),
         )),
         multispace1,
         parse_register,
@@ -682,12 +684,12 @@ fn parse_arith_log<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span
 fn parse_arith_log_imm<'a, E: ParseError<Span<'a>>>(input: Span<'a>) -> IResult<Span, Line, E> {
     let (i, (op, _, rd, _, _, rs, _, _, imm)) = tuple((
         alt((
-            tag("addi"),
             tag("addiu"),
+            tag("addi"),
             tag("andi"),
             tag("ori"),
-            tag("slti"),
             tag("sltiu"),
+            tag("slti"),
         )),
         multispace1,
         parse_register,
