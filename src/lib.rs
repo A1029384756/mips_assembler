@@ -23,7 +23,6 @@ pub fn parse(i: &str) -> Result<(Vec<u32>, Vec<u8>), String> {
     let span = Span::new(&preprocessed);
     let parse_result: Result<_, ErrorTree<Span>> = final_parser(parse_asm::<ErrorTree<Span>>)(span);
 
-    println!("{parse_result:?}");
     match parse_result {
         Ok(asm) => match assemble(&asm) {
             Ok(out) => Ok(out),
