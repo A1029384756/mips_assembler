@@ -1,3 +1,10 @@
+/* 
+* parse_tests.rs Hayden Gray Virginia Tech
+* This file holds the test for the Mips Assembler,
+* testing that parsing and assembly functions
+* as expected
+*/
+
 #[cfg(test)]
 mod tests {
     use crate::*;

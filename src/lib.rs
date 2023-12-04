@@ -1,3 +1,12 @@
+/* 
+* lib.rs Hayden Gray Virginia Tech
+* This file holds the the Mips Assembler,
+* which takes in a String holding raw
+* assembly and returns two vectors,
+* one representing instruction memory,
+* the other representing data memory
+*/
+
 mod parse_tests;
 use std::collections::HashMap;
 
