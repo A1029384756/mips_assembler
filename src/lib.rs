@@ -33,8 +33,8 @@ pub fn parse(i: &str) -> Result<(Vec<u32>, Vec<u8>), String> {
                 "Parse error at: {}",
                 location.lines().next().unwrap_or("")
             )),
-            GenericErrorTree::Stack { .. } => todo!(),
-            GenericErrorTree::Alt(_) => todo!(),
+            GenericErrorTree::Stack { .. } => Err("Invalid asm file".to_string()),
+            GenericErrorTree::Alt(_) => Err("Invalid asm file".to_string()),
         },
     }
 }
